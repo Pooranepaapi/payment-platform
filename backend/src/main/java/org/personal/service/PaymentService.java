@@ -35,20 +35,20 @@ public class PaymentService {
     private final ContractRepository contractRepository;
     private final PaymentRepository paymentRepository;
     private final TransactionRepository transactionRepository;
-    private final UpiSimulatorService upiSimulatorService;
+    private final SimulatorClient simulatorClient;
     private final ObjectMapper objectMapper;
 
     public PaymentService(MerchantRepository merchantRepository,
                           ContractRepository contractRepository,
                           PaymentRepository paymentRepository,
                           TransactionRepository transactionRepository,
-                          UpiSimulatorService upiSimulatorService,
+                          SimulatorClient simulatorClient,
                           ObjectMapper objectMapper) {
         this.merchantRepository = merchantRepository;
         this.contractRepository = contractRepository;
         this.paymentRepository = paymentRepository;
         this.transactionRepository = transactionRepository;
-        this.upiSimulatorService = upiSimulatorService;
+        this.simulatorClient = simulatorClient;
         this.objectMapper = objectMapper;
     }
 
@@ -132,11 +132,15 @@ public class PaymentService {
         payment.setStatus(PaymentStatus.PENDING);
         paymentRepository.save(payment);
 
-        // If test mode, use simulator
+        // If test mode, use external simulator service
         if (payment.getTestMode()) {
             String merchantVpa = getMerchantVpaFromContract(contract);
-            UpiSimulatorService.SimulatorResponse simResponse =
-                    upiSimulatorService.initiateCollect(transaction, request.getCustomerVpa(), merchantVpa);
+            SimulatorClient.SimulatorResponse simResponse = simulatorClient.initiateUpiCollect(
+                    transaction,
+                    request.getCustomerVpa(),
+                    merchantVpa,
+                    contract.getPaymentType()
+            );
 
             transaction.setPspReferenceId(simResponse.getPspReferenceId());
             transaction.setStatus(simResponse.getStatus());
@@ -146,6 +150,7 @@ public class PaymentService {
                 transaction.setResponsePayload(objectMapper.writeValueAsString(Map.of(
                     "pspReferenceId", simResponse.getPspReferenceId(),
                     "status", simResponse.getStatus().name(),
+                    "bankCode", simResponse.getBankCode() != null ? simResponse.getBankCode() : "",
                     "failureReason", simResponse.getFailureReason() != null ? simResponse.getFailureReason() : ""
                 )));
             } catch (JsonProcessingException e) {
@@ -200,6 +205,8 @@ public class PaymentService {
 
     /**
      * Simulates customer approving the UPI collect request.
+     * Note: With the external simulator service, callbacks are sent automatically.
+     * This method is kept for backward compatibility and manual testing scenarios.
      */
     @Transactional
     public Transaction simulateCustomerApproval(String transactionId, String customerVpa) {
@@ -208,18 +215,30 @@ public class PaymentService {
         Transaction transaction = transactionRepository.findByTransactionId(transactionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction", transactionId));
 
-        if (transaction.getStatus() != TransactionStatus.PENDING) {
+        if (transaction.getStatus() != TransactionStatus.PENDING
+                && transaction.getStatus() != TransactionStatus.INITIATED) {
             throw new InvalidOperationException(
                 "Transaction is not pending approval",
                 "INVALID_TRANSACTION_STATE");
         }
 
-        UpiSimulatorService.SimulatorResponse simResponse =
-                upiSimulatorService.simulateCallback(transaction, customerVpa);
+        // With the new simulator architecture, callbacks come automatically.
+        // This endpoint can be used for manual testing or when simulator callback fails.
+        log.info("Note: External simulator sends callbacks automatically. " +
+                "Use this endpoint only for manual testing or recovery scenarios.");
 
-        transaction.setStatus(simResponse.getStatus());
-        transaction.setBankReferenceId(simResponse.getBankReferenceId());
-        transaction.setFailureReason(simResponse.getFailureReason());
+        // Determine outcome based on VPA
+        TransactionStatus status = determineStatusFromVpa(customerVpa);
+        String failureReason = null;
+        if (status == TransactionStatus.FAILED) {
+            failureReason = "Transaction declined by customer (manual simulation)";
+        }
+
+        String bankReferenceId = "MANUAL_BNK" + System.currentTimeMillis();
+
+        transaction.setStatus(status);
+        transaction.setBankReferenceId(bankReferenceId);
+        transaction.setFailureReason(failureReason);
 
         transaction = transactionRepository.save(transaction);
 
@@ -228,9 +247,26 @@ public class PaymentService {
         updatePaymentAfterTransaction(payment, transaction);
 
         log.info("Customer approval simulated: txn={}, result={}",
-                transactionId, simResponse.getStatus());
+                transactionId, status);
 
         return transaction;
+    }
+
+    /**
+     * Helper method to determine transaction status based on customer VPA.
+     */
+    private TransactionStatus determineStatusFromVpa(String customerVpa) {
+        if (customerVpa == null) {
+            return TransactionStatus.SUCCESS;
+        }
+        String normalized = customerVpa.toLowerCase();
+        if (normalized.contains("fail") || normalized.contains("declined")) {
+            return TransactionStatus.FAILED;
+        }
+        if (normalized.contains("timeout") || normalized.contains("pending")) {
+            return TransactionStatus.PENDING;
+        }
+        return TransactionStatus.SUCCESS;
     }
 
     /**
@@ -274,10 +310,13 @@ public class PaymentService {
 
         refundTransaction = transactionRepository.save(refundTransaction);
 
-        // If test mode, use simulator
+        // If test mode, use external simulator service
         if (payment.getTestMode()) {
-            UpiSimulatorService.SimulatorResponse simResponse =
-                    upiSimulatorService.initiateRefund(originalTransaction, refundTransaction);
+            SimulatorClient.SimulatorResponse simResponse = simulatorClient.initiateUpiRefund(
+                    originalTransaction,
+                    refundTransaction,
+                    originalTransaction.getContract().getPaymentType()
+            );
 
             refundTransaction.setPspReferenceId(simResponse.getPspReferenceId());
             refundTransaction.setBankReferenceId(simResponse.getBankReferenceId());
@@ -286,12 +325,9 @@ public class PaymentService {
 
             refundTransaction = transactionRepository.save(refundTransaction);
 
-            // Update payment refunded amount
-            if (simResponse.getStatus() == TransactionStatus.SUCCESS) {
-                payment.setRefundedAmount(payment.getRefundedAmount().add(request.getAmount()));
-                updatePaymentStatusAfterRefund(payment);
-                paymentRepository.save(payment);
-            }
+            // Note: Refund callback will come from simulator asynchronously
+            // For immediate response, we show PENDING status
+            // Payment will be updated when callback arrives via processUpiCallback
         }
 
         log.info("Refund initiated: txn={}, status={}",
@@ -402,6 +438,14 @@ public class PaymentService {
                 if (pendingTxns.isEmpty()) {
                     payment.setStatus(PaymentStatus.FAILED);
                 }
+            }
+        } else if (transaction.getTxnType() == TransactionType.CREDIT) {
+            // Handle refund callback
+            if (transaction.getStatus() == TransactionStatus.SUCCESS) {
+                payment.setRefundedAmount(payment.getRefundedAmount().add(transaction.getAmount()));
+                updatePaymentStatusAfterRefund(payment);
+                log.info("Refund callback processed: payment={}, refundedAmount={}",
+                        payment.getPaymentId(), payment.getRefundedAmount());
             }
         }
         paymentRepository.save(payment);

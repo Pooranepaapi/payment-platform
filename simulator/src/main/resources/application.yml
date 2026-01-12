@@ -1,0 +1,34 @@
+# Simulator Application Configuration
+spring:
+  application:
+    name: payment-simulator
+  jackson:
+    serialization:
+      indent-output: true
+    default-property-inclusion: non_null
+
+server:
+  port: 8181
+
+# Simulator Settings
+simulator:
+  callback:
+    # Default delay before sending callback (ms)
+    default-delay-ms: 2000
+    # Number of retry attempts for failed callbacks
+    retry-count: 3
+    # Delay between retries (ms)
+    retry-delay-ms: 1000
+
+  # Backend URL for callbacks
+  backend:
+    base-url: http://localhost:8080
+    callback-path: /api/transactions/upi/callback
+
+# Logging
+logging:
+  level:
+    org.personal.simulator: DEBUG
+    org.springframework.web: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

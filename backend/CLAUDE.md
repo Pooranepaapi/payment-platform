@@ -7,8 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Phase 1: UPI Payments (CURRENT)
 - Focus: UPI collect and payment flow
 - Database: H2 file-based (persists merchant/contract data, transactions reset on startup)
-- Flow: Create Payment → Initiate UPI Collect → Simulate Customer Approval → Payment Success
-- Test Approach: Using simulated endpoints for approval testing
+- Flow: Create Payment → Initiate UPI Collect → Simulator Callback → Payment Success
+- Test Approach: External simulator service (port 8181) handles bank simulation with async callbacks
+- Architecture: Backend (8080) → Simulator (8181) → Callback to Backend
 
 ### Phase 2: Card Payments with 3DS (Future)
 - Focus: Card authorization, capture, void, refund with 3DS authentication
@@ -51,6 +52,32 @@ This is a payment processing backend supporting UPI payments in Phase 1, with pl
 
 ```
 Controllers (HTTP) → Services (Business Logic) → Repositories (Data) → H2 Database (Phase 1)
+                           ↓
+                    SimulatorClient → External Simulator Service (port 8181)
+```
+
+### Simulator Service (Separate Project)
+
+The `simulator` project is a separate Spring Boot application that simulates bank PSP responses:
+
+**Location:** `payment-platform/simulator`
+**Port:** 8181
+
+**Supported Banks:**
+- RBLUPI (RBL Bank) - 1.5s callback delay
+- HDFCUPI (HDFC Bank) - 2.0s callback delay
+- KOTAKUPI (Kotak Bank) - 2.5s callback delay
+
+**Communication Flow:**
+1. Backend calls `POST /api/simulator/upi/collect` with PaymentType
+2. Simulator returns PENDING status with PSP reference
+3. Simulator async calls backend's callback endpoint after delay
+4. Backend updates transaction and payment status
+
+**Run Simulator:**
+```bash
+cd simulator
+mvn spring-boot:run
 ```
 
 ### Key Components
@@ -72,10 +99,12 @@ Controllers (HTTP) → Services (Business Logic) → Repositories (Data) → H2 
 ### Phase 1: UPI Payment Flow
 
 1. **Create Payment** `POST /api/payments` → Create payment record with initial status
-2. **Initiate UPI Collect** `POST /api/payments/upi/collect` → Generate UPI request
-3. **Simulate Customer Approval** `POST /api/transactions/{id}/simulate-approval` → (Testing only)
-4. **PSP Callback** `POST /api/transactions/upi/callback` → Process payment result
-5. **Refund Payment** `POST /api/payments/refund` → Initiate refund transaction
+2. **Initiate UPI Collect** `POST /api/payments/upi/collect` → Backend calls simulator, returns PENDING
+3. **Simulator Callback** `POST /api/transactions/upi/callback` → Simulator sends async callback (1.5-2.5s)
+4. **Payment Success/Failure** → Backend updates payment status based on callback
+5. **Refund Payment** `POST /api/payments/refund` → Initiate refund (also via simulator)
+
+**Note:** The `simulate-approval` endpoint is now for manual testing/recovery only. Normal flow uses automatic callbacks from the simulator service.
 
 ### Transaction States (Phase 1 - UPI)
 
@@ -102,11 +131,16 @@ URL: jdbc:mysql://localhost:3306/payment_gateway
 
 ### Test Data
 
-**Test VPAs (UPI):**
+**Common Test VPAs (All Banks):**
 - `success@upi` - Payment will succeed
 - `fail@upi` - Customer rejects payment
-- `timeout@upi` - Payment stays pending
+- `timeout@upi` - Payment stays pending (no callback)
 - `insufficient@upi` - Insufficient funds error
+
+**Bank-Specific Test VPAs:**
+- RBL: `rbl.success@rbl`, `rbl.fail@rbl`, `rbl.timeout@rbl`, `rbl.lowbal@rbl`
+- HDFC: `hdfc.success@hdfc`, `hdfc.fail@hdfc`, `hdfc.timeout@hdfc`, `hdfc.declined@hdfc`, `hdfc.nobal@hdfc`
+- Kotak: `kotak.success@kotak`, `kotak.fail@kotak`, `kotak.timeout@kotak`, `kotak.blocked@kotak`
 
 ### API Endpoints (Phase 1)
 
