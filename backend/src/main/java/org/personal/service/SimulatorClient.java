@@ -1,6 +1,6 @@
 package org.personal.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.personal.entity.Transaction;
 import org.personal.enums.PaymentType;
 import org.personal.enums.TransactionStatus;

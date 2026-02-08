@@ -1,7 +1,7 @@
 package org.personal.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.personal.dto.*;
 import org.personal.entity.Contract;
 import org.personal.entity.Merchant;
@@ -122,7 +122,7 @@ public class PaymentService {
                 "amount", transaction.getAmount()
             );
             transaction.setRequestPayload(objectMapper.writeValueAsString(requestPayload));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to serialize request payload", e);
         }
 
@@ -153,7 +153,7 @@ public class PaymentService {
                     "bankCode", simResponse.getBankCode() != null ? simResponse.getBankCode() : "",
                     "failureReason", simResponse.getFailureReason() != null ? simResponse.getFailureReason() : ""
                 )));
-            } catch (JsonProcessingException e) {
+            } catch (JacksonException e) {
                 log.warn("Failed to serialize response payload", e);
             }
 
@@ -419,7 +419,7 @@ public class PaymentService {
                 Map<String, Object> params = objectMapper.readValue(contract.getParams(), Map.class);
                 return (String) params.getOrDefault("merchantVpa", "merchant@upi");
             }
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to parse contract params", e);
         }
         return "merchant@upi";

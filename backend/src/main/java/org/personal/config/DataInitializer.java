@@ -1,7 +1,7 @@
 package org.personal.config;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.personal.entity.Contract;
 import org.personal.entity.Merchant;
 import org.personal.enums.ContractStatus;
@@ -78,7 +78,7 @@ public class DataInitializer implements CommandLineRunner {
                 "merchantName", "Test Store"
             );
             upiContract.setParams(objectMapper.writeValueAsString(params));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to serialize contract params", e);
         }
 
@@ -115,7 +115,7 @@ public class DataInitializer implements CommandLineRunner {
                 "merchantName", "Demo Shop"
             );
             upiContract2.setParams(objectMapper.writeValueAsString(params));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to serialize contract params", e);
         }
 
