@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: payment-postgres
+    environment:
+      POSTGRES_DB: payment_gateway
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: payment-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/payment_gateway
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SIMULATOR_BASE_URL=http://simulator:8181
+      - APP_BASE_URL=http://backend:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  simulator:
+    build: ./simulator
+    container_name: payment-simulator
+    ports:
+      - "8181:8181"
+    environment:
+      - SIMULATOR_BACKEND_BASE_URL=http://backend:8080
+    depends_on:
+      - backend
+    restart: on-failure
+
+  frontend:
+    build: ./frontend
+    container_name: payment-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
