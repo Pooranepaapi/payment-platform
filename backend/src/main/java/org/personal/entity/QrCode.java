@@ -78,7 +78,7 @@ public class QrCode {
      * - LONGTEXT: Can store very large encoded images
      * - Used by mobile apps for display
      */
-    @Column(name = "qr_image_base64", nullable = false, columnDefinition = "LONGTEXT")
+    @Column(name = "qr_image_base64", nullable = false, columnDefinition = "TEXT")
     private String qrImageBase64;
 
     /**
@@ -89,7 +89,7 @@ public class QrCode {
      * - Used by websites for flexible rendering
      * - ~5-10 KB for typical payment QR
      */
-    @Column(name = "qr_image_svg", nullable = false, columnDefinition = "LONGTEXT")
+    @Column(name = "qr_image_svg", nullable = false, columnDefinition = "TEXT")
     private String qrImageSvg;
 
     // ==================== UPI Intent ====================
