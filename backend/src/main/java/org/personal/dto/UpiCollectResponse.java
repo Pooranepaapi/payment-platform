@@ -11,6 +11,7 @@ public class UpiCollectResponse {
     private Long paymentId;
     private TransactionStatus status;
     private String pspReferenceId;
+    private String bankReferenceId;
     private String failureReason;
     private LocalDateTime createdAt;
     private String message;
@@ -54,6 +55,14 @@ public class UpiCollectResponse {
 
     public void setPspReferenceId(String pspReferenceId) {
         this.pspReferenceId = pspReferenceId;
+    }
+
+    public String getBankReferenceId() {
+        return bankReferenceId;
+    }
+
+    public void setBankReferenceId(String bankReferenceId) {
+        this.bankReferenceId = bankReferenceId;
     }
 
     public String getFailureReason() {

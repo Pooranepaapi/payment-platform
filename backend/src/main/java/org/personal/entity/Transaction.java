@@ -58,6 +58,10 @@ public class Transaction {
     @Column(name = "failure_reason", length = 500)
     private String failureReason;
 
+    /** Bank's own reference ID, received in the async callback. */
+    @Column(name = "bank_reference_id", length = 100)
+    private String bankReferenceId;
+
     /** Which PSP handled this transaction (e.g. "SIMULATOR", "AXIS"). */
     @Column(name = "psp_name", nullable = false, length = 50)
     private String pspName;

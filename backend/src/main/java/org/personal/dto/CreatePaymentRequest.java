@@ -25,5 +25,6 @@ public class CreatePaymentRequest {
 
     private String customerMobile;
 
+    private String description;
 
 }

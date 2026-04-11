@@ -257,6 +257,10 @@ public class PaymentService {
             payment.setStatus(PaymentStatus.FAILED);
         }
 
+        if (bankReferenceId != null) {
+            txn.setBankReferenceId(bankReferenceId);
+        }
+
         LocalDateTime now = LocalDateTime.now();
         txn.setUpdatedAt(now);
         payment.setUpdatedAt(now);
