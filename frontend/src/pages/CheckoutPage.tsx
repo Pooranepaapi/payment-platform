@@ -36,7 +36,7 @@ const MERCHANT_ID = 'MER001'; // Default test merchant (matches backend DataInit
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('card');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('upi');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [merchantData, setMerchantData] = useState<MerchantData | null>(null);
@@ -289,12 +289,9 @@ export default function CheckoutPage() {
           <div className="flex gap-2 mb-6">
             <button
               type="button"
-              onClick={() => handleMethodChange('card')}
-              className={`flex-1 py-3 px-4 rounded-lg font-medium transition flex items-center justify-center gap-2 ${
-                paymentMethod === 'card'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
+              disabled
+              title="Card payments coming soon"
+              className="flex-1 py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 bg-gray-100 text-gray-400 cursor-not-allowed relative"
             >
               <svg
                 className="w-5 h-5"
@@ -310,6 +307,9 @@ export default function CheckoutPage() {
                 />
               </svg>
               Card
+              <span className="absolute -top-2 -right-2 bg-yellow-400 text-yellow-900 text-xs font-bold px-1.5 py-0.5 rounded-full leading-none">
+                Soon
+              </span>
             </button>
             <button
               type="button"
