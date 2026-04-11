@@ -5,8 +5,11 @@ import com.google.zxing.MultiFormatWriter;
 import com.google.zxing.WriterException;
 import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
-import org.personal.entity.PaymentOrder;
+import org.jspecify.annotations.NonNull;
+import org.personal.entity.Merchant;
+import org.personal.entity.Payment;
 import org.personal.entity.QrCode;
+import org.personal.exception.PaymentException;
 import org.personal.enums.QrType;
 import org.personal.repository.QrCodeRepository;
 import org.slf4j.Logger;
@@ -47,12 +50,12 @@ public class QrCodeService {
 
     /**
      * Generate QR code for a payment
-     * @param payment PaymentOrder entity
+     * @param payment Payment entity
      * @param upiVpa Merchant's UPI VPA (e.g., "storea@axis")
      * @param upiMerchantName Merchant's UPI display name
      * @return Generated QrCode entity
      */
-    public QrCode generateQrCode(PaymentOrder payment, String upiVpa, String upiMerchantName) {
+    public QrCode generateQrCode(Payment payment, String upiVpa, String upiMerchantName) {
         try {
             // Generate UPI intent URI
             String upiIntent = buildUpiIntent(payment, upiVpa, upiMerchantName);
@@ -63,7 +66,7 @@ public class QrCodeService {
 
             // Create QrCode entity
             QrCode qrCode = new QrCode();
-            qrCode.setPaymentOrder(payment);
+            qrCode.setPayment(payment);
             qrCode.setQrType(QrType.DYNAMIC);
             qrCode.setQrImageBase64(qrBase64);
             qrCode.setQrImageSvg(qrSvg);
@@ -78,19 +81,19 @@ public class QrCodeService {
             return saved;
         } catch (WriterException e) {
             logger.error("Failed to generate QR code for payment: {}", payment.getPaymentUuid(), e);
-            throw new RuntimeException("QR generation failed", e);
+            throw new PaymentException("QR generation failed", "QR_GENERATION_FAILED");
         }
     }
 
     /**
      * Build UPI intent URI
      * Format: upi://pay?pa=storea@axis&pn=Store%20A&am=100.50&tr=ORDER-123&tn=Coffee
-     * @param payment PaymentOrder entity
+     * @param payment Payment entity
      * @param upiVpa Merchant's UPI VPA
      * @param upiMerchantName Merchant's UPI display name
      * @return UPI intent string
      */
-    private String buildUpiIntent(PaymentOrder payment, String upiVpa, String upiMerchantName) {
+    private String buildUpiIntent(Payment payment, String upiVpa, String upiMerchantName) {
         // Convert paise to rupees
         BigDecimal amountInRupees = payment.getAmountInRupees();
 
@@ -152,12 +155,60 @@ public class QrCodeService {
     }
 
     /**
+     * Generate or retrieve a static QR code for a merchant.
+     * Static QRs have no amount — the customer enters the amount in their UPI app.
+     * One static QR per merchant; returns existing if already generated.
+     */
+    public QrCode generateStaticQrCode(Merchant merchant, String upiVpa, String upiMerchantName) {
+        // Return existing static QR if one exists for this merchant
+        return qrCodeRepository.findByMerchantAndQrType(merchant, QrType.STATIC)
+                .orElseGet(() -> {
+                    try {
+                        return getQrCode(merchant, upiVpa, upiMerchantName);
+                    } catch (WriterException e) {
+                        logger.error("Failed to generate static QR code for merchant: {}", merchant.getMerchantId(), e);
+                        throw new PaymentException("Static QR generation failed", "QR_GENERATION_FAILED");
+                    }
+                });
+    }
+
+    private @NonNull QrCode getQrCode(Merchant merchant, String upiVpa, String upiMerchantName) throws WriterException {
+        String upiIntent = buildStaticUpiIntent(upiVpa, upiMerchantName);
+        String qrBase64 = generateQrCodeBase64(upiIntent);
+        String qrSvg = generateQrCodeSvg(upiIntent);
+
+        QrCode qrCode = new QrCode();
+        qrCode.setMerchant(merchant);
+        qrCode.setQrType(QrType.STATIC);
+        qrCode.setQrImageBase64(qrBase64);
+        qrCode.setQrImageSvg(qrSvg);
+        qrCode.setUpiIntent(upiIntent);
+        // Static QRs do not expire
+        qrCode.setExpiresAt(null);
+        qrCode.setCreatedAt(LocalDateTime.now());
+        qrCode.setUpdatedAt(LocalDateTime.now());
+
+        QrCode saved = qrCodeRepository.save(qrCode);
+        logger.info("Static QR code generated for merchant: {}", merchant.getMerchantId());
+        return saved;
+    }
+
+    /**
+     * Build UPI intent URI for static QR (no amount, no transaction reference)
+     * Format: upi://pay?pa=storea@axis&pn=Store%20A
+     */
+    private String buildStaticUpiIntent(String upiVpa, String upiMerchantName) {
+        String encodedName = upiMerchantName.replace(" ", "%20");
+        return "upi://pay?pa=" + upiVpa + "&pn=" + encodedName;
+    }
+
+    /**
      * Get QR code for a payment
-     * @param payment PaymentOrder entity
+     * @param payment Payment entity
      * @return QrCode if found
      */
-    public QrCode getQrCodeForPayment(PaymentOrder payment) {
-        return qrCodeRepository.findByPaymentOrder(payment)
+    public QrCode getQrCodeForPayment(Payment payment) {
+        return qrCodeRepository.findByPayment(payment)
                 .orElseThrow(() -> new IllegalArgumentException("No QR code found for payment"));
     }
 

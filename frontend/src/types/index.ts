@@ -106,6 +106,7 @@ export interface CreatePaymentResponse {
 
 export interface GenerateQRResponse {
   paymentId: number;
+  qrType?: string;
   qrImageBase64: string;
   qrImageSvg?: string;
   upiIntent: string;

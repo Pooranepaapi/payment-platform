@@ -1,6 +1,6 @@
 package org.personal.service;
 
-import org.personal.entity.PaymentOrder;
+import org.personal.entity.Payment;
 import org.personal.entity.RefundOrder;
 import org.personal.enums.RefundStatus;
 import org.personal.repository.RefundOrderRepository;
@@ -39,12 +39,12 @@ public class RefundOrderService {
     /**
      * Create a new refund order (INITIATED state)
      * Validates refund amount is not over-refunding
-     * @param payment PaymentOrder entity
+     * @param payment Payment entity
      * @param refundAmountInPaise Amount to refund in paise
      * @param reason Refund reason (optional)
      * @return Created RefundOrder
      */
-    public RefundOrder createRefund(PaymentOrder payment, Long refundAmountInPaise, String reason) {
+    public RefundOrder createRefund(Payment payment, Long refundAmountInPaise, String reason) {
         // Validate amount
         if (refundAmountInPaise == null || refundAmountInPaise <= 0) {
             throw new IllegalArgumentException("Refund amount must be > 0");
@@ -62,7 +62,7 @@ public class RefundOrderService {
         }
 
         RefundOrder refund = new RefundOrder();
-        refund.setPaymentOrder(payment);
+        refund.setPayment(payment);
         refund.setRefundAmountInPaise(refundAmountInPaise);
         refund.setReason(reason);
         refund.setStatus(RefundStatus.INITIATED);
@@ -123,29 +123,29 @@ public class RefundOrderService {
 
     /**
      * Get all refunds for a payment
-     * @param payment PaymentOrder entity
+     * @param payment Payment entity
      * @return List of refunds
      */
-    public List<RefundOrder> getRefundsByPayment(PaymentOrder payment) {
-        return refundOrderRepository.findByPaymentOrder(payment);
+    public List<RefundOrder> getRefundsByPayment(Payment payment) {
+        return refundOrderRepository.findByPayment(payment);
     }
 
     /**
      * Get successful refunds for a payment
      * Used to calculate total refunded amount
-     * @param payment PaymentOrder entity
+     * @param payment Payment entity
      * @return List of successful refunds
      */
-    public List<RefundOrder> getSuccessfulRefunds(PaymentOrder payment) {
+    public List<RefundOrder> getSuccessfulRefunds(Payment payment) {
         return refundOrderRepository.findSuccessfulRefunds(payment);
     }
 
     /**
      * Calculate total refunded amount for a payment
-     * @param payment PaymentOrder entity
+     * @param payment Payment entity
      * @return Total refunded in paise
      */
-    public Long getTotalRefundedAmount(PaymentOrder payment) {
+    public Long getTotalRefundedAmount(Payment payment) {
         Long total = refundOrderRepository.sumSuccessfulRefundAmount(payment);
         return total != null ? total : 0L;
     }
@@ -161,11 +161,11 @@ public class RefundOrderService {
 
     /**
      * Check if refund amount is valid (not over-refunding)
-     * @param payment PaymentOrder entity
+     * @param payment Payment entity
      * @param refundAmountInPaise Amount to refund
      * @return true if valid
      */
-    public boolean isValidRefundAmount(PaymentOrder payment, Long refundAmountInPaise) {
+    public boolean isValidRefundAmount(Payment payment, Long refundAmountInPaise) {
         Long totalRefunded = getTotalRefundedAmount(payment);
         long maxRefund = payment.getAmountInPaise() - totalRefunded;
         return refundAmountInPaise > 0 && refundAmountInPaise <= maxRefund;

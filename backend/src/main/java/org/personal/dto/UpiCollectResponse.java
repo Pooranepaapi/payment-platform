@@ -1,32 +1,26 @@
 package org.personal.dto;
 
-import org.personal.enums.PaymentMethod;
 import org.personal.enums.TransactionStatus;
-import org.personal.enums.TransactionType;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-public class TransactionResponse {
+public class UpiCollectResponse {
 
-    private String transactionId;
+    private Long transactionId;
     private String transactionUuid;
-    private String paymentId;
-    private TransactionType txnType;
-    private PaymentMethod paymentMethod;
-    private BigDecimal amount;
+    private Long paymentId;
     private TransactionStatus status;
     private String pspReferenceId;
-    private String bankReferenceId;
     private String failureReason;
     private LocalDateTime createdAt;
+    private String message;
 
     // Getters and Setters
-    public String getTransactionId() {
+    public Long getTransactionId() {
         return transactionId;
     }
 
-    public void setTransactionId(String transactionId) {
+    public void setTransactionId(Long transactionId) {
         this.transactionId = transactionId;
     }
 
@@ -38,36 +32,12 @@ public class TransactionResponse {
         this.transactionUuid = transactionUuid;
     }
 
-    public String getPaymentId() {
+    public Long getPaymentId() {
         return paymentId;
     }
 
-    public void setPaymentId(String paymentId) {
+    public void setPaymentId(Long paymentId) {
         this.paymentId = paymentId;
-    }
-
-    public TransactionType getTxnType() {
-        return txnType;
-    }
-
-    public void setTxnType(TransactionType txnType) {
-        this.txnType = txnType;
-    }
-
-    public PaymentMethod getPaymentMethod() {
-        return paymentMethod;
-    }
-
-    public void setPaymentMethod(PaymentMethod paymentMethod) {
-        this.paymentMethod = paymentMethod;
-    }
-
-    public BigDecimal getAmount() {
-        return amount;
-    }
-
-    public void setAmount(BigDecimal amount) {
-        this.amount = amount;
     }
 
     public TransactionStatus getStatus() {
@@ -86,14 +56,6 @@ public class TransactionResponse {
         this.pspReferenceId = pspReferenceId;
     }
 
-    public String getBankReferenceId() {
-        return bankReferenceId;
-    }
-
-    public void setBankReferenceId(String bankReferenceId) {
-        this.bankReferenceId = bankReferenceId;
-    }
-
     public String getFailureReason() {
         return failureReason;
     }
@@ -108,5 +70,13 @@ public class TransactionResponse {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
     }
 }

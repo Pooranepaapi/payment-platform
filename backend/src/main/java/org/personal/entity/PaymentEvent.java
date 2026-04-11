@@ -73,8 +73,8 @@ public class PaymentEvent {
      * - Never null
      */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "payment_order_id", nullable = false)
-    private PaymentOrder paymentOrder;
+    @JoinColumn(name = "payment_id", nullable = false)
+    private Payment payment;
 
     /**
      * Payment UUID (denormalized for faster queries)

@@ -110,59 +110,32 @@ export const api = {
   },
 
   // ============================================
-  // UPI Collect APIs (v0 - existing)
+  // UPI Payment APIs (v1)
   // ============================================
 
   async createPayment(
-    paymentData: CreatePaymentRequest
-  ): Promise<CreatePaymentResponse> {
-    const response = await fetch(`${API_BASE}/api/payments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(paymentData),
-    });
-    return response.json();
-  },
-
-  async upiCollect(
-    paymentId: number,
-    customerVpa: string,
-    contractId: string | null = null
-  ): Promise<UpiCollectResponse> {
-    const response = await fetch(`${API_BASE}/api/payments/upi/collect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paymentId, customerVpa, contractId }),
-    });
-    return response.json();
-  },
-
-  async simulateUpiApproval(
-    transactionId: number | string,
-    customerVpa: string = 'success@upi'
-  ): Promise<TransactionResponse> {
-    const response = await fetch(
-      `${API_BASE}/api/transactions/${transactionId}/simulate-approval?customerVpa=${encodeURIComponent(customerVpa)}`,
-      { method: 'POST' }
-    );
-    return response.json();
-  },
-
-  // ============================================
-  // UPI QR APIs (v1 - NEW)
-  // ============================================
-
-  /**
-   * Create a new payment order for QR payment
-   * POST /api/v1/payments
-   */
-  async createPaymentV1(
     paymentData: CreatePaymentRequest
   ): Promise<CreatePaymentResponse> {
     const response = await fetch(`${API_BASE}/api/v1/payments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(paymentData),
+    });
+    return response.json();
+  },
+
+  /**
+   * Initiate UPI collect for a payment
+   * POST /api/v1/payments/upi/collect
+   */
+  async upiCollect(
+    paymentId: number,
+    customerVpa: string
+  ): Promise<UpiCollectResponse> {
+    const response = await fetch(`${API_BASE}/api/v1/payments/upi/collect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paymentId, customerVpa }),
     });
     return response.json();
   },
@@ -194,6 +167,34 @@ export const api = {
    */
   async settlePayment(paymentId: number | string): Promise<PaymentStatusResponse> {
     const response = await fetch(`${API_BASE}/api/v1/payments/${paymentId}/settle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return response.json();
+  },
+
+  /**
+   * Cancel a payment
+   * POST /api/v1/payments/{paymentId}/cancel
+   */
+  /**
+   * Generate a static QR code for a merchant
+   * POST /api/v1/payments/static-qr?merchantId={merchantId}
+   */
+  async generateStaticQR(merchantId: string): Promise<GenerateQRResponse> {
+    const response = await fetch(`${API_BASE}/api/v1/payments/static-qr?merchantId=${encodeURIComponent(merchantId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return response.json();
+  },
+
+  /**
+   * Cancel a payment
+   * POST /api/v1/payments/{paymentId}/cancel
+   */
+  async cancelPayment(paymentId: number | string): Promise<PaymentStatusResponse> {
+    const response = await fetch(`${API_BASE}/api/v1/payments/${paymentId}/cancel`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });

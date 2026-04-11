@@ -1,7 +1,8 @@
 package org.personal.repository;
 
+import org.personal.entity.Merchant;
 import org.personal.entity.QrCode;
-import org.personal.entity.PaymentOrder;
+import org.personal.entity.Payment;
 import org.personal.enums.QrType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -24,7 +25,15 @@ public interface QrCodeRepository extends JpaRepository<QrCode, Long> {
      * @param paymentOrder PaymentOrder entity
      * @return QrCode if found
      */
-    Optional<QrCode> findByPaymentOrder(PaymentOrder paymentOrder);
+    Optional<QrCode> findByPayment(Payment payment);
+
+    /**
+     * Find static QR code for a merchant (one per merchant)
+     * @param merchant Merchant entity
+     * @param qrType QrType enum (STATIC)
+     * @return QrCode if found
+     */
+    Optional<QrCode> findByMerchantAndQrType(Merchant merchant, QrType qrType);
 
     /**
      * Find all expired QR codes (past expiresAt)

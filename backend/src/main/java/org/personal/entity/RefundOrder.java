@@ -52,7 +52,7 @@ import java.util.UUID;
     name = "refund_order",
     indexes = {
         @Index(name = "idx_refund_uuid", columnList = "refund_uuid", unique = true),
-        @Index(name = "idx_refund_payment", columnList = "payment_order_id"),
+        @Index(name = "idx_refund_payment", columnList = "payment_id"),
         @Index(name = "idx_refund_status", columnList = "status"),
         @Index(name = "idx_refund_created", columnList = "created_at DESC")
     }
@@ -87,8 +87,8 @@ public class RefundOrder {
      * - One payment can have multiple refunds
      */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "payment_order_id", nullable = false)
-    private PaymentOrder paymentOrder;
+    @JoinColumn(name = "payment_id", nullable = false)
+    private Payment payment;
 
     // ==================== Refund Status ====================
 
@@ -199,72 +199,6 @@ public class RefundOrder {
     public java.math.BigDecimal getAmountInRupees() {
         return java.math.BigDecimal.valueOf(refundAmountInPaise)
                 .divide(java.math.BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP);
-    }
-
-    // ==================== Getters & Setters ====================
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public String getRefundUuid() {
-        return refundUuid;
-    }
-
-    public void setRefundUuid(String refundUuid) {
-        this.refundUuid = refundUuid;
-    }
-
-    public PaymentOrder getPaymentOrder() {
-        return paymentOrder;
-    }
-
-    public void setPaymentOrder(PaymentOrder paymentOrder) {
-        this.paymentOrder = paymentOrder;
-    }
-
-    public RefundStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(RefundStatus status) {
-        this.status = status;
-    }
-
-    public Long getRefundAmountInPaise() {
-        return refundAmountInPaise;
-    }
-
-    public void setRefundAmountInPaise(Long refundAmountInPaise) {
-        this.refundAmountInPaise = refundAmountInPaise;
-    }
-
-    public String getReason() {
-        return reason;
-    }
-
-    public void setReason(String reason) {
-        this.reason = reason;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
     }
 
     // ==================== toString ====================

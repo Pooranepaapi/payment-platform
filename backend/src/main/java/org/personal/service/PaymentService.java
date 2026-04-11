@@ -1,461 +1,269 @@
 package org.personal.service;
 
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.ObjectMapper;
-import org.personal.dto.*;
-import org.personal.entity.Contract;
-import org.personal.entity.Merchant;
-import org.personal.entity.Payment;
-import org.personal.entity.Transaction;
-import org.personal.enums.*;
-import org.personal.exception.InvalidOperationException;
-import org.personal.exception.PaymentException;
-import org.personal.exception.ResourceNotFoundException;
-import org.personal.repository.ContractRepository;
-import org.personal.repository.MerchantRepository;
-import org.personal.repository.PaymentRepository;
-import org.personal.repository.TransactionRepository;
+import org.personal.entity.*;
+import org.personal.enums.PaymentStatus;
+import org.personal.enums.PaymentType;
+import org.personal.enums.TransactionStatus;
+import org.personal.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
+@Transactional
 public class PaymentService {
 
-    private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
+    private static final Logger logger = LoggerFactory.getLogger(PaymentService.class);
 
-    private final MerchantRepository merchantRepository;
-    private final ContractRepository contractRepository;
     private final PaymentRepository paymentRepository;
+    private final PaymentEventRepository paymentEventRepository;
+    private final MerchantRepository merchantRepository;
+    private final FeeCalculationService feeCalculationService;
+    private final QrCodeService qrCodeService;
     private final TransactionRepository transactionRepository;
     private final SimulatorClient simulatorClient;
-    private final ObjectMapper objectMapper;
 
-    public PaymentService(MerchantRepository merchantRepository,
-                          ContractRepository contractRepository,
-                          PaymentRepository paymentRepository,
+    @Value("${app.base-url:http://localhost:8080}")
+    private String backendBaseUrl;
+
+    public PaymentService(PaymentRepository paymentRepository,
+                          PaymentEventRepository paymentEventRepository,
+                          MerchantRepository merchantRepository,
+                          FeeCalculationService feeCalculationService,
+                          QrCodeService qrCodeService,
                           TransactionRepository transactionRepository,
-                          SimulatorClient simulatorClient,
-                          ObjectMapper objectMapper) {
-        this.merchantRepository = merchantRepository;
-        this.contractRepository = contractRepository;
+                          SimulatorClient simulatorClient) {
         this.paymentRepository = paymentRepository;
+        this.paymentEventRepository = paymentEventRepository;
+        this.merchantRepository = merchantRepository;
+        this.feeCalculationService = feeCalculationService;
+        this.qrCodeService = qrCodeService;
         this.transactionRepository = transactionRepository;
         this.simulatorClient = simulatorClient;
-        this.objectMapper = objectMapper;
     }
 
-    /**
-     * Creates a new payment.
-     */
-    @Transactional
-    public Payment createPayment(CreatePaymentRequest request) {
-        log.info("Creating payment for merchant={}, amount={}", request.getMerchantId(), request.getAmount());
-
-        Merchant merchant = merchantRepository.findByMerchantId(request.getMerchantId())
-                .orElseThrow(() -> new ResourceNotFoundException("Merchant", request.getMerchantId()));
-
-        if (merchant.getStatus() != MerchantStatus.ACTIVE) {
-            throw new PaymentException("Merchant is not active", "MERCHANT_INACTIVE");
+    public Payment createPayment(Merchant merchant, Long amountInPaise,
+                                 String externalOrderId, String description,
+                                 Integer expiryMinutes) {
+        if (amountInPaise == null || amountInPaise <= 0) {
+            throw new IllegalArgumentException("Amount must be > 0");
         }
 
         Payment payment = new Payment();
-        payment.setPaymentId("pay_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16));
-        payment.setPaymentUuid(UUID.randomUUID().toString());
         payment.setMerchant(merchant);
-        payment.setMerchantOrderId(request.getMerchantOrderId());
-        payment.setDueAmount(request.getAmount());
-        payment.setPaidAmount(BigDecimal.ZERO);
-        payment.setRefundedAmount(BigDecimal.ZERO);
-        payment.setCurrency(request.getCurrency() != null ? request.getCurrency() : "INR");
-        payment.setTestMode(request.getTestMode() != null ? request.getTestMode() : true);
+        payment.setAmountInPaise(amountInPaise);
+        payment.setCurrency("INR");
+        payment.setExternalOrderId(externalOrderId);
+        payment.setDescription(description);
         payment.setStatus(PaymentStatus.CREATED);
-        payment.setCustomerMobile(request.getCustomerMobile());
-        payment.setExpiresAt(LocalDateTime.now().plusMinutes(15));
 
-        payment = paymentRepository.save(payment);
-        log.info("Payment created: {}", payment.getPaymentId());
+        Long platformFee = feeCalculationService.calculatePlatformFee(merchant, amountInPaise);
+        Long merchantNet = feeCalculationService.calculateMerchantNet(amountInPaise, platformFee);
 
-        return payment;
+        payment.setPlatformFeeInPaise(platformFee);
+        payment.setMerchantNetInPaise(merchantNet);
+
+        LocalDateTime now = LocalDateTime.now();
+        payment.setCreatedAt(now);
+        payment.setUpdatedAt(now);
+        payment.setExpiresAt(now.plusMinutes(expiryMinutes != null ? expiryMinutes : 15));
+
+        Payment saved = paymentRepository.save(payment);
+        logger.info("Payment created: UUID={}", saved.getPaymentUuid());
+        return saved;
     }
 
-    /**
-     * Initiates a UPI collect transaction for a payment.
-     */
-    @Transactional
-    public Transaction initiateUpiCollect(UpiCollectRequest request) {
-        log.info("Initiating UPI collect for payment={}, customerVpa={}",
-                request.getPaymentId(), request.getCustomerVpa());
+    public Optional<Payment> getPayment(String paymentUuid) {
+        Optional<Payment> paymentOpt = paymentRepository.findByPaymentUuid(paymentUuid);
 
-        Payment payment = paymentRepository.findByPaymentId(request.getPaymentId())
-                .orElseThrow(() -> new ResourceNotFoundException("Payment", request.getPaymentId()));
-
-        validatePaymentForTransaction(payment);
-
-        // Get merchant's UPI contract
-        Contract contract = findUpiContract(payment.getMerchant(), request.getContractId());
-
-        // Create transaction
-        Transaction transaction = new Transaction();
-        transaction.setTransactionId("txn_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16));
-        transaction.setTransactionUuid(UUID.randomUUID().toString());
-        transaction.setPayment(payment);
-        transaction.setContract(contract);
-        transaction.setTxnType(TransactionType.DEBIT);
-        transaction.setPaymentMethod(PaymentMethod.UPI);
-        transaction.setAmount(payment.getDueAmount().subtract(payment.getPaidAmount()));
-        transaction.setTestMode(payment.getTestMode());
-        transaction.setStatus(TransactionStatus.INITIATED);
-
-        // Store request payload
-        try {
-            Map<String, Object> requestPayload = Map.of(
-                "customerVpa", request.getCustomerVpa(),
-                "merchantVpa", getMerchantVpaFromContract(contract),
-                "amount", transaction.getAmount()
-            );
-            transaction.setRequestPayload(objectMapper.writeValueAsString(requestPayload));
-        } catch (JacksonException e) {
-            log.warn("Failed to serialize request payload", e);
+        if (paymentOpt.isPresent()) {
+            Payment payment = paymentOpt.get();
+            if (payment.isExpired()) {
+                logger.info("Payment {} expired", paymentUuid);
+                payment.setStatus(PaymentStatus.EXPIRED);
+                payment.setUpdatedAt(LocalDateTime.now());
+                paymentRepository.save(payment);
+            }
         }
 
-        transaction = transactionRepository.save(transaction);
+        return paymentOpt;
+    }
 
-        // Update payment status to PENDING
+    public Optional<Payment> getPaymentById(Long id) {
+        Optional<Payment> paymentOpt = paymentRepository.findById(id);
+
+        if (paymentOpt.isPresent()) {
+            Payment payment = paymentOpt.get();
+            if (payment.isExpired()) {
+                logger.info("Payment {} expired", payment.getPaymentUuid());
+                payment.setStatus(PaymentStatus.EXPIRED);
+                payment.setUpdatedAt(LocalDateTime.now());
+                paymentRepository.save(payment);
+            }
+        }
+
+        return paymentOpt;
+    }
+
+    public Payment generateQrCode(String paymentUuid, String upiVpa, String upiName) {
+        Payment payment = getPayment(paymentUuid)
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+
+        if (payment.getStatus() != PaymentStatus.CREATED) {
+            throw new IllegalStateException("Cannot generate QR");
+        }
+
+        QrCode qrCode = qrCodeService.generateQrCode(payment, upiVpa, upiName);
+
+        payment.setStatus(PaymentStatus.QR_GENERATED);
+        payment.setUpdatedAt(LocalDateTime.now());
+        payment.setQrCode(qrCode);
+
+        return paymentRepository.save(payment);
+    }
+
+    public Payment transitionToPending(String paymentUuid) {
+        Payment payment = getPayment(paymentUuid)
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+
+        if (payment.getStatus() != PaymentStatus.QR_GENERATED) {
+            throw new IllegalStateException("Invalid state");
+        }
+
         payment.setStatus(PaymentStatus.PENDING);
-        paymentRepository.save(payment);
+        payment.setUpdatedAt(LocalDateTime.now());
 
-        // If test mode, use external simulator service
-        if (payment.getTestMode()) {
-            String merchantVpa = getMerchantVpaFromContract(contract);
-            SimulatorClient.SimulatorResponse simResponse = simulatorClient.initiateUpiCollect(
-                    transaction,
-                    request.getCustomerVpa(),
-                    merchantVpa,
-                    contract.getPaymentType()
-            );
-
-            transaction.setPspReferenceId(simResponse.getPspReferenceId());
-            transaction.setStatus(simResponse.getStatus());
-            transaction.setFailureReason(simResponse.getFailureReason());
-
-            try {
-                transaction.setResponsePayload(objectMapper.writeValueAsString(Map.of(
-                    "pspReferenceId", simResponse.getPspReferenceId(),
-                    "status", simResponse.getStatus().name(),
-                    "bankCode", simResponse.getBankCode() != null ? simResponse.getBankCode() : "",
-                    "failureReason", simResponse.getFailureReason() != null ? simResponse.getFailureReason() : ""
-                )));
-            } catch (JacksonException e) {
-                log.warn("Failed to serialize response payload", e);
-            }
-
-            transaction = transactionRepository.save(transaction);
-        }
-
-        log.info("UPI collect initiated: txn={}, status={}",
-                transaction.getTransactionId(), transaction.getStatus());
-
-        return transaction;
+        return paymentRepository.save(payment);
     }
 
-    /**
-     * Processes UPI callback (simulates customer approval/rejection).
-     */
-    @Transactional
-    public Transaction processUpiCallback(UpiCallbackRequest request) {
-        log.info("Processing UPI callback for txn={}", request.getTransactionId());
+    public Payment markAsSuccess(String paymentUuid) {
+        Payment payment = getPayment(paymentUuid)
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
 
-        Transaction transaction = transactionRepository.findByTransactionId(request.getTransactionId())
-                .orElseThrow(() -> new ResourceNotFoundException("Transaction", request.getTransactionId()));
+        payment.setStatus(PaymentStatus.SUCCESS);
+        payment.setUpdatedAt(LocalDateTime.now());
 
-        if (transaction.getStatus() != TransactionStatus.PENDING
-                && transaction.getStatus() != TransactionStatus.INITIATED) {
-            throw new InvalidOperationException(
-                "Transaction is not in a state that can receive callbacks",
-                "INVALID_TRANSACTION_STATE");
-        }
-
-        // Update transaction
-        TransactionStatus newStatus = TransactionStatus.valueOf(request.getStatus());
-        transaction.setStatus(newStatus);
-        transaction.setBankReferenceId(request.getBankReferenceId());
-        if (request.getFailureReason() != null) {
-            transaction.setFailureReason(request.getFailureReason());
-        }
-
-        transaction = transactionRepository.save(transaction);
-
-        // Update payment based on transaction result
-        Payment payment = transaction.getPayment();
-        updatePaymentAfterTransaction(payment, transaction);
-
-        log.info("UPI callback processed: txn={}, newStatus={}",
-                transaction.getTransactionId(), newStatus);
-
-        return transaction;
+        return paymentRepository.save(payment);
     }
 
-    /**
-     * Simulates customer approving the UPI collect request.
-     * Note: With the external simulator service, callbacks are sent automatically.
-     * This method is kept for backward compatibility and manual testing scenarios.
-     */
-    @Transactional
-    public Transaction simulateCustomerApproval(String transactionId, String customerVpa) {
-        log.info("Simulating customer approval for txn={}", transactionId);
+    public Payment markAsFailed(String paymentUuid, String reason) {
+        Payment payment = getPayment(paymentUuid)
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
 
-        Transaction transaction = transactionRepository.findByTransactionId(transactionId)
-                .orElseThrow(() -> new ResourceNotFoundException("Transaction", transactionId));
+        payment.setStatus(PaymentStatus.FAILED);
+        payment.setUpdatedAt(LocalDateTime.now());
 
-        if (transaction.getStatus() != TransactionStatus.PENDING
-                && transaction.getStatus() != TransactionStatus.INITIATED) {
-            throw new InvalidOperationException(
-                "Transaction is not pending approval",
-                "INVALID_TRANSACTION_STATE");
-        }
-
-        // With the new simulator architecture, callbacks come automatically.
-        // This endpoint can be used for manual testing or when simulator callback fails.
-        log.info("Note: External simulator sends callbacks automatically. " +
-                "Use this endpoint only for manual testing or recovery scenarios.");
-
-        // Determine outcome based on VPA
-        TransactionStatus status = determineStatusFromVpa(customerVpa);
-        String failureReason = null;
-        if (status == TransactionStatus.FAILED) {
-            failureReason = "Transaction declined by customer (manual simulation)";
-        }
-
-        String bankReferenceId = "MANUAL_BNK" + System.currentTimeMillis();
-
-        transaction.setStatus(status);
-        transaction.setBankReferenceId(bankReferenceId);
-        transaction.setFailureReason(failureReason);
-
-        transaction = transactionRepository.save(transaction);
-
-        // Update payment
-        Payment payment = transaction.getPayment();
-        updatePaymentAfterTransaction(payment, transaction);
-
-        log.info("Customer approval simulated: txn={}, result={}",
-                transactionId, status);
-
-        return transaction;
+        return paymentRepository.save(payment);
     }
 
-    /**
-     * Helper method to determine transaction status based on customer VPA.
-     */
-    private TransactionStatus determineStatusFromVpa(String customerVpa) {
-        if (customerVpa == null) {
-            return TransactionStatus.SUCCESS;
+    public Payment cancelPayment(String paymentUuid) {
+        Payment payment = getPayment(paymentUuid)
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+
+        if (payment.isTerminal()) {
+            throw new IllegalStateException("Cannot cancel");
         }
-        String normalized = customerVpa.toLowerCase();
-        if (normalized.contains("fail") || normalized.contains("declined")) {
-            return TransactionStatus.FAILED;
-        }
-        if (normalized.contains("timeout") || normalized.contains("pending")) {
-            return TransactionStatus.PENDING;
-        }
-        return TransactionStatus.SUCCESS;
+
+        payment.setStatus(PaymentStatus.CANCELLED);
+        payment.setUpdatedAt(LocalDateTime.now());
+
+        return paymentRepository.save(payment);
     }
 
-    /**
-     * Initiates a refund.
-     */
-    @Transactional
-    public Transaction initiateRefund(RefundRequest request) {
-        log.info("Initiating refund for payment={}, amount={}",
-                request.getPaymentId(), request.getAmount());
+    public List<PaymentEvent> getAuditTrail(String paymentUuid) {
+        Payment payment = getPayment(paymentUuid)
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
 
-        Payment payment = paymentRepository.findByPaymentId(request.getPaymentId())
-                .orElseThrow(() -> new ResourceNotFoundException("Payment", request.getPaymentId()));
-
-        validatePaymentForRefund(payment, request.getAmount());
-
-        // Find the original successful DEBIT transaction
-        List<Transaction> successfulDebits = transactionRepository
-                .findByPaymentAndTxnType(payment, TransactionType.DEBIT)
-                .stream()
-                .filter(t -> t.getStatus() == TransactionStatus.SUCCESS)
-                .toList();
-
-        if (successfulDebits.isEmpty()) {
-            throw new InvalidOperationException(
-                "No successful payment transaction found to refund",
-                "NO_TRANSACTION_TO_REFUND");
-        }
-
-        Transaction originalTransaction = successfulDebits.get(0);
-
-        // Create refund transaction
-        Transaction refundTransaction = new Transaction();
-        refundTransaction.setTransactionId("txn_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16));
-        refundTransaction.setPayment(payment);
-        refundTransaction.setContract(originalTransaction.getContract());
-        refundTransaction.setTxnType(TransactionType.CREDIT);
-        refundTransaction.setPaymentMethod(originalTransaction.getPaymentMethod());
-        refundTransaction.setAmount(request.getAmount());
-        refundTransaction.setTestMode(payment.getTestMode());
-        refundTransaction.setStatus(TransactionStatus.INITIATED);
-
-        refundTransaction = transactionRepository.save(refundTransaction);
-
-        // If test mode, use external simulator service
-        if (payment.getTestMode()) {
-            SimulatorClient.SimulatorResponse simResponse = simulatorClient.initiateUpiRefund(
-                    originalTransaction,
-                    refundTransaction,
-                    originalTransaction.getContract().getPaymentType()
-            );
-
-            refundTransaction.setPspReferenceId(simResponse.getPspReferenceId());
-            refundTransaction.setBankReferenceId(simResponse.getBankReferenceId());
-            refundTransaction.setStatus(simResponse.getStatus());
-            refundTransaction.setFailureReason(simResponse.getFailureReason());
-
-            refundTransaction = transactionRepository.save(refundTransaction);
-
-            // Note: Refund callback will come from simulator asynchronously
-            // For immediate response, we show PENDING status
-            // Payment will be updated when callback arrives via processUpiCallback
-        }
-
-        log.info("Refund initiated: txn={}, status={}",
-                refundTransaction.getTransactionId(), refundTransaction.getStatus());
-
-        return refundTransaction;
+        return paymentEventRepository.findByPayment(payment);
     }
 
-    /**
-     * Gets payment by ID.
-     */
-    public Payment getPayment(String paymentId) {
-        return paymentRepository.findByPaymentId(paymentId)
-                .orElseThrow(() -> new ResourceNotFoundException("Payment", paymentId));
+    public List<Payment> getPaymentsByMerchant(String merchantId) {
+        Merchant merchant = merchantRepository.findByMerchantId(merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("Merchant not found"));
+
+        return paymentRepository.findByMerchant(merchant);
     }
 
-    /**
-     * Gets transaction by ID.
-     */
-    public Transaction getTransaction(String transactionId) {
-        return transactionRepository.findByTransactionId(transactionId)
-                .orElseThrow(() -> new ResourceNotFoundException("Transaction", transactionId));
-    }
+    public Transaction initiateUpiCollect(Long paymentId, String customerVpa) {
+        Payment payment = getPaymentById(paymentId)
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found: " + paymentId));
 
-    /**
-     * Gets all transactions for a payment.
-     */
-    public List<Transaction> getTransactionsForPayment(String paymentId) {
-        Payment payment = getPayment(paymentId);
-        return transactionRepository.findByPayment(payment);
-    }
-
-    // Private helper methods
-
-    private void validatePaymentForTransaction(Payment payment) {
-        if (payment.getStatus() == PaymentStatus.SUCCESS) {
-            throw new InvalidOperationException("Payment is already completed", "PAYMENT_COMPLETED");
-        }
-        if (payment.getStatus() == PaymentStatus.EXPIRED) {
-            throw new InvalidOperationException("Payment has expired", "PAYMENT_EXPIRED");
-        }
-        if (payment.getExpiresAt() != null && payment.getExpiresAt().isBefore(LocalDateTime.now())) {
-            payment.setStatus(PaymentStatus.EXPIRED);
-            paymentRepository.save(payment);
-            throw new InvalidOperationException("Payment has expired", "PAYMENT_EXPIRED");
-        }
-    }
-
-    private void validatePaymentForRefund(Payment payment, BigDecimal refundAmount) {
-        if (payment.getStatus() != PaymentStatus.SUCCESS
-                && payment.getStatus() != PaymentStatus.REFUNDED_PARTIALLY) {
-            throw new InvalidOperationException(
-                "Payment must be successful to initiate refund",
-                "INVALID_PAYMENT_STATE");
+        Merchant merchant = payment.getMerchant();
+        String merchantVpa = merchant.getVpa();
+        if (merchantVpa == null || merchantVpa.isEmpty()) {
+            merchantVpa = merchant.getMerchantId() + "@test";
         }
 
-        BigDecimal refundableAmount = payment.getPaidAmount().subtract(payment.getRefundedAmount());
-        if (refundAmount.compareTo(refundableAmount) > 0) {
-            throw new InvalidOperationException(
-                "Refund amount exceeds refundable amount: " + refundableAmount,
-                "REFUND_AMOUNT_EXCEEDED");
-        }
-    }
+        String pspTransactionId = "UPI_" + System.currentTimeMillis() + "_" +
+                UUID.randomUUID().toString().replace("-", "").substring(0, 8);
 
-    private Contract findUpiContract(Merchant merchant, String contractId) {
-        if (contractId != null) {
-            Contract contract = contractRepository.findByContractId(contractId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Contract", contractId));
-            if (!contract.getMerchant().getId().equals(merchant.getId())) {
-                throw new PaymentException("Contract does not belong to merchant", "INVALID_CONTRACT");
-            }
-            return contract;
-        }
+        Transaction txn = new Transaction();
+        txn.setPayment(payment);
+        txn.setPspName("SIMULATOR");
+        txn.setPspTransactionId(pspTransactionId);
+        txn.setStatus(TransactionStatus.INITIATED);
+        txn.setCreatedAt(LocalDateTime.now());
+        txn.setUpdatedAt(LocalDateTime.now());
+        txn = transactionRepository.save(txn);
 
-        // Find first active UPI contract
-        List<Contract> upiContracts = contractRepository
-                .findByMerchantAndPaymentMethodAndStatus(merchant, PaymentMethod.UPI, ContractStatus.ACTIVE);
+        BigDecimal amountInRupees = BigDecimal.valueOf(payment.getAmountInPaise()).divide(BigDecimal.valueOf(100));
+        String callbackUrl = backendBaseUrl + "/api/v1/payments/upi/callback";
 
-        if (upiContracts.isEmpty()) {
-            throw new PaymentException("No active UPI contract found for merchant", "NO_UPI_CONTRACT");
-        }
-
-        return upiContracts.get(0);
-    }
-
-    private String getMerchantVpaFromContract(Contract contract) {
         try {
-            if (contract.getParams() != null) {
-                Map<String, Object> params = objectMapper.readValue(contract.getParams(), Map.class);
-                return (String) params.getOrDefault("merchantVpa", "merchant@upi");
-            }
-        } catch (JacksonException e) {
-            log.warn("Failed to parse contract params", e);
+            SimulatorClient.SimulatorResponse simResponse = simulatorClient.initiateUpiCollect(
+                    pspTransactionId, amountInRupees, customerVpa, merchantVpa, PaymentType.DYNAMIC_QR, callbackUrl);
+
+            txn.setStatus(TransactionStatus.PENDING);
+            txn.setUpdatedAt(LocalDateTime.now());
+            txn = transactionRepository.save(txn);
+
+            payment.setStatus(PaymentStatus.PENDING);
+            payment.setUpdatedAt(LocalDateTime.now());
+            paymentRepository.save(payment);
+
+            logger.info("UPI collect initiated: paymentId={}, txnId={}, pspRef={}",
+                    paymentId, txn.getId(), simResponse.getPspReferenceId());
+        } catch (Exception e) {
+            txn.setStatus(TransactionStatus.FAILED);
+            txn.setFailureReason("Simulator unavailable: " + e.getMessage());
+            txn.setUpdatedAt(LocalDateTime.now());
+            txn = transactionRepository.save(txn);
+            logger.error("UPI collect failed for paymentId={}: {}", paymentId, e.getMessage());
         }
-        return "merchant@upi";
+
+        return txn;
     }
 
-    private void updatePaymentAfterTransaction(Payment payment, Transaction transaction) {
-        if (transaction.getTxnType() == TransactionType.DEBIT) {
-            if (transaction.getStatus() == TransactionStatus.SUCCESS) {
-                payment.setPaidAmount(payment.getPaidAmount().add(transaction.getAmount()));
-                if (payment.getPaidAmount().compareTo(payment.getDueAmount()) >= 0) {
-                    payment.setStatus(PaymentStatus.SUCCESS);
-                }
-            } else if (transaction.getStatus() == TransactionStatus.FAILED) {
-                // Check if there are any pending transactions
-                List<Transaction> pendingTxns = transactionRepository.findByPaymentAndStatus(payment, TransactionStatus.PENDING);
-                if (pendingTxns.isEmpty()) {
-                    payment.setStatus(PaymentStatus.FAILED);
-                }
-            }
-        } else if (transaction.getTxnType() == TransactionType.CREDIT) {
-            // Handle refund callback
-            if (transaction.getStatus() == TransactionStatus.SUCCESS) {
-                payment.setRefundedAmount(payment.getRefundedAmount().add(transaction.getAmount()));
-                updatePaymentStatusAfterRefund(payment);
-                log.info("Refund callback processed: payment={}, refundedAmount={}",
-                        payment.getPaymentId(), payment.getRefundedAmount());
-            }
+    public void processUpiCallback(String transactionId, String status, String bankReferenceId, String failureReason) {
+        Transaction txn = transactionRepository.findByPspTransactionId(transactionId)
+                .orElseThrow(() -> new IllegalArgumentException("Transaction not found: " + transactionId));
+
+        Payment payment = txn.getPayment();
+
+        if ("SUCCESS".equalsIgnoreCase(status)) {
+            txn.setStatus(TransactionStatus.SUCCESS);
+            payment.setStatus(PaymentStatus.SUCCESS);
+        } else {
+            txn.setStatus(TransactionStatus.FAILED);
+            txn.setFailureReason(failureReason);
+            payment.setStatus(PaymentStatus.FAILED);
         }
+
+        LocalDateTime now = LocalDateTime.now();
+        txn.setUpdatedAt(now);
+        payment.setUpdatedAt(now);
+
+        transactionRepository.save(txn);
         paymentRepository.save(payment);
-    }
 
-    private void updatePaymentStatusAfterRefund(Payment payment) {
-        if (payment.getRefundedAmount().compareTo(payment.getPaidAmount()) >= 0) {
-            payment.setStatus(PaymentStatus.REFUNDED);
-        } else if (payment.getRefundedAmount().compareTo(BigDecimal.ZERO) > 0) {
-            payment.setStatus(PaymentStatus.REFUNDED_PARTIALLY);
-        }
+        logger.info("UPI callback processed: transactionId={}, status={}", transactionId, status);
     }
 }

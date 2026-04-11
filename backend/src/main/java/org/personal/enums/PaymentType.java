@@ -5,6 +5,7 @@ public enum PaymentType {
     RBLUPI,
     HDFCUPI,
     KOTAKUPI,
+    DYNAMIC_QR,
 
     // Card types (future)
     HDFCCC,

@@ -1,6 +1,8 @@
 package org.personal.entity;
 
 import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
 import org.personal.enums.MerchantStatus;
 
 import java.time.LocalDateTime;
@@ -21,6 +23,8 @@ import java.time.LocalDateTime;
     @Index(name = "idx_merchant_uuid", columnList = "merchant_uuid", unique = true),
     @Index(name = "idx_merchant_master", columnList = "master_merchant_id")
 })
+@Getter
+@Setter
 public class Merchant {
 
     @Id
@@ -112,126 +116,4 @@ public class Merchant {
         updatedAt = LocalDateTime.now();
     }
 
-    // Getters and Setters
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public String getMerchantId() {
-        return merchantId;
-    }
-
-    public void setMerchantId(String merchantId) {
-        this.merchantId = merchantId;
-    }
-
-    public String getLegalName() {
-        return legalName;
-    }
-
-    public void setLegalName(String legalName) {
-        this.legalName = legalName;
-    }
-
-    public String getDisplayName() {
-        return displayName;
-    }
-
-    public void setDisplayName(String displayName) {
-        this.displayName = displayName;
-    }
-
-    public String getUsername() {
-        return username;
-    }
-
-    public void setUsername(String username) {
-        this.username = username;
-    }
-
-    public String getPasswordHash() {
-        return passwordHash;
-    }
-
-    public void setPasswordHash(String passwordHash) {
-        this.passwordHash = passwordHash;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
-    }
-
-    public String getMobile() {
-        return mobile;
-    }
-
-    public void setMobile(String mobile) {
-        this.mobile = mobile;
-    }
-
-    public MerchantStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(MerchantStatus status) {
-        this.status = status;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
-
-    // ==================== QR System Getters/Setters ====================
-
-    public MasterMerchant getMasterMerchant() {
-        return masterMerchant;
-    }
-
-    public void setMasterMerchant(MasterMerchant masterMerchant) {
-        this.masterMerchant = masterMerchant;
-    }
-
-    public String getMerchantUuid() {
-        return merchantUuid;
-    }
-
-    public void setMerchantUuid(String merchantUuid) {
-        this.merchantUuid = merchantUuid;
-    }
-
-    public String getVpa() {
-        return vpa;
-    }
-
-    public void setVpa(String vpa) {
-        this.vpa = vpa;
-    }
-
-    public java.math.BigDecimal getPlatformFeePercentage() {
-        return platformFeePercentage;
-    }
-
-    public void setPlatformFeePercentage(java.math.BigDecimal platformFeePercentage) {
-        this.platformFeePercentage = platformFeePercentage;
-    }
 }

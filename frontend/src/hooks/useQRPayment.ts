@@ -82,6 +82,9 @@ export function useQRPayment({
             stopPolling();
             setState((prev) => ({ ...prev, status: 'expired' }));
             onExpire();
+          } else if (response.status === 'CANCELLED') {
+            stopPolling();
+            onError('Payment was cancelled');
           }
         } catch (err) {
           if (!mountedRef.current) return;
@@ -105,7 +108,7 @@ export function useQRPayment({
 
       try {
         // Step 1: Create payment
-        const paymentResponse = await api.createPaymentV1(paymentData);
+        const paymentResponse = await api.createPayment(paymentData);
 
         if (!mountedRef.current) return;
 

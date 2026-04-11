@@ -180,40 +180,30 @@ export default function CheckoutPage() {
         );
       }
 
-      const transactionId = collectResponse.transactionId;
-
-      // Step 3: Auto-approve in test mode (after short delay)
-      setUpiStatus('approving');
-      setUpiMessage('Waiting for customer approval...');
-
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      setUpiMessage('Simulating customer approval...');
-      await api.simulateUpiApproval(transactionId, upiForm.customerVpa);
-
-      // Step 4: Poll for final status
+      // Step 3: Poll for payment status (simulator sends callback automatically)
       setUpiStatus('polling');
-      setUpiMessage('Processing payment...');
+      setUpiMessage('Waiting for payment confirmation...');
+
+      const paymentId = paymentResponse.paymentId;
 
       const pollForStatus = () => {
         return new Promise<void>((resolve, reject) => {
           let attempts = 0;
-          const maxAttempts = 10;
+          const maxAttempts = 15;
 
           pollingRef.current = setInterval(async () => {
             attempts++;
             try {
-              const txn = await api.getTransaction(transactionId);
+              const payment = await api.getPaymentStatus(paymentId);
 
-              if (txn.status === 'SUCCESS') {
+              if (payment.status === 'SUCCESS') {
                 if (pollingRef.current) clearInterval(pollingRef.current);
                 resolve();
-              } else if (txn.status === 'FAILED') {
+              } else if (payment.status === 'FAILED') {
                 if (pollingRef.current) clearInterval(pollingRef.current);
-                reject(new Error(txn.failureReason || 'Payment failed'));
+                reject(new Error('Payment failed'));
               } else if (attempts >= maxAttempts) {
                 if (pollingRef.current) clearInterval(pollingRef.current);
-                // Navigate anyway to show current status
                 resolve();
               }
             } catch (err) {
@@ -228,7 +218,7 @@ export default function CheckoutPage() {
 
       // Success - navigate to transaction page
       sessionStorage.removeItem('merchantData');
-      navigate(`/transaction/${transactionId}`);
+      navigate(`/transaction/${paymentId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setUpiStatus(null);
@@ -687,7 +677,14 @@ export default function CheckoutPage() {
 
                   {/* Cancel Button */}
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      try {
+                        if (qrPayment.payment?.paymentId) {
+                          await api.cancelPayment(qrPayment.payment.paymentId);
+                        }
+                      } catch (err) {
+                        console.error('Failed to cancel payment:', err);
+                      }
                       qrPayment.reset();
                       setError(null);
                     }}

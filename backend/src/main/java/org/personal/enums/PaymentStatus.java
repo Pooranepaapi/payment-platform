@@ -1,13 +1,8 @@
 package org.personal.enums;
 
 /**
- * Payment Status for both UPI (Payment) and QR (PaymentOrder) systems
- *
- * UPI System (Payment entity):
- * CREATED → PENDING → SUCCESS/FAILED/CANCELLED
- *
- * QR System (PaymentOrder entity):
- * CREATED → QR_GENERATED → PENDING → SUCCESS/FAILED/EXPIRED
+ * Payment status.
+ * CREATED → QR_GENERATED → PENDING → SUCCESS / FAILED / EXPIRED / CANCELLED
  */
 public enum PaymentStatus {
     // Common states

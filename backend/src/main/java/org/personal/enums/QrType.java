@@ -19,6 +19,6 @@ package org.personal.enums;
  * - Customer enters amount manually
  */
 public enum QrType {
-    DYNAMIC    // Phase-1: Dynamic QR with payment amount
-    // STATIC  // Phase-2: Static merchant QR
+    DYNAMIC,   // Phase-1: Dynamic QR with payment amount
+    STATIC     // Phase-2: Static merchant QR
 }

@@ -31,7 +31,8 @@ import java.time.LocalDateTime;
 @Table(
     name = "qr_code",
     indexes = {
-        @Index(name = "idx_qr_payment", columnList = "payment_order_id", unique = true)
+        @Index(name = "idx_qr_payment", columnList = "payment_id", unique = true),
+        @Index(name = "idx_qr_merchant_type", columnList = "merchant_id,qr_type")
     }
 )
 @Getter
@@ -54,8 +55,18 @@ public class QrCode {
      * - If payment deleted (cascade), QR also deleted
      */
     @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "payment_order_id", nullable = false, unique = true)
-    private PaymentOrder paymentOrder;
+    @JoinColumn(name = "payment_id", nullable = true, unique = true)
+    private Payment payment;
+
+    // ==================== Merchant Reference (Static QR) ====================
+
+    /**
+     * Merchant who owns this QR code (used for STATIC QR codes).
+     * For DYNAMIC QRs, the merchant is accessed via paymentOrder.getMerchant().
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "merchant_id")
+    private Merchant merchant;
 
     // ==================== QR Code Type ====================
 
@@ -124,7 +135,7 @@ public class QrCode {
      * - After this time, QR is no longer valid
      * - Customer can't pay via this QR
      */
-    @Column(name = "expires_at", nullable = false)
+    @Column(name = "expires_at")
     private LocalDateTime expiresAt;
 
     // ==================== Timestamps ====================
@@ -161,87 +172,13 @@ public class QrCode {
         updatedAt = LocalDateTime.now();
     }
 
-    // ==================== Getters & Setters ====================
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public PaymentOrder getPaymentOrder() {
-        return paymentOrder;
-    }
-
-    public void setPaymentOrder(PaymentOrder paymentOrder) {
-        this.paymentOrder = paymentOrder;
-    }
-
-    public QrType getQrType() {
-        return qrType;
-    }
-
-    public void setQrType(QrType qrType) {
-        this.qrType = qrType;
-    }
-
-    public String getQrImageBase64() {
-        return qrImageBase64;
-    }
-
-    public void setQrImageBase64(String qrImageBase64) {
-        this.qrImageBase64 = qrImageBase64;
-    }
-
-    public String getQrImageSvg() {
-        return qrImageSvg;
-    }
-
-    public void setQrImageSvg(String qrImageSvg) {
-        this.qrImageSvg = qrImageSvg;
-    }
-
-    public String getUpiIntent() {
-        return upiIntent;
-    }
-
-    public void setUpiIntent(String upiIntent) {
-        this.upiIntent = upiIntent;
-    }
-
-    public LocalDateTime getExpiresAt() {
-        return expiresAt;
-    }
-
-    public void setExpiresAt(LocalDateTime expiresAt) {
-        this.expiresAt = expiresAt;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
-
     // ==================== Helper Methods ====================
 
     /**
      * Check if this QR code has expired
      */
     public boolean isExpired() {
-        return LocalDateTime.now().isAfter(expiresAt);
+        return expiresAt != null && LocalDateTime.now().isAfter(expiresAt);
     }
 
     // ==================== toString ====================
@@ -250,7 +187,7 @@ public class QrCode {
     public String toString() {
         return "QrCode{" +
                 "id=" + id +
-                ", paymentOrderId=" + (paymentOrder != null ? paymentOrder.getId() : null) +
+                ", paymentId=" + (payment != null ? payment.getId() : null) +
                 ", qrType=" + qrType +
                 ", expiresAt=" + expiresAt +
                 ", isExpired=" + isExpired() +

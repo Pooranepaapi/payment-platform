@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { MerchantFormState } from '../types';
+import { api } from '../api';
+import type { MerchantFormState, GenerateQRResponse } from '../types';
 
 export default function MerchantPage() {
   const navigate = useNavigate();
@@ -28,8 +29,23 @@ export default function MerchantPage() {
     navigate('/checkout');
   };
 
+  const [staticQr, setStaticQr] = useState<GenerateQRResponse | null>(null);
+  const [staticQrLoading, setStaticQrLoading] = useState(false);
+
   const generateOrderId = () => {
     setForm({ ...form, orderId: `ORD-${Date.now()}` });
+  };
+
+  const handleGenerateStaticQR = async () => {
+    setStaticQrLoading(true);
+    try {
+      const response = await api.generateStaticQR(form.merchantId);
+      setStaticQr(response);
+    } catch (err) {
+      console.error('Failed to generate static QR:', err);
+    } finally {
+      setStaticQrLoading(false);
+    }
   };
 
   return (
@@ -279,6 +295,39 @@ export default function MerchantPage() {
             Proceed to Checkout
           </button>
         </form>
+
+        {/* Static QR Code */}
+        <div className="mt-6 bg-slate-800 rounded-lg p-6 border border-slate-700">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
+            <svg className="w-5 h-5 mr-2 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+            </svg>
+            Static QR Code
+          </h2>
+          <p className="text-slate-400 text-sm mb-4">
+            Generate a permanent QR code for countertop payments. Customers enter the amount in their UPI app.
+          </p>
+          <button
+            type="button"
+            onClick={handleGenerateStaticQR}
+            disabled={staticQrLoading}
+            className="w-full bg-purple-600 text-white py-2 rounded-lg font-semibold hover:bg-purple-700 transition disabled:opacity-50"
+          >
+            {staticQrLoading ? 'Generating...' : 'Generate Static QR'}
+          </button>
+
+          {staticQr && staticQr.qrImageBase64 && (
+            <div className="mt-4 flex flex-col items-center">
+              <img
+                src={staticQr.qrImageBase64}
+                alt="Static QR Code"
+                className="w-48 h-48 rounded-lg border border-slate-600"
+              />
+              <p className="mt-2 text-slate-400 text-sm">Customer enters amount in UPI app</p>
+              <p className="mt-1 text-slate-500 text-xs font-mono break-all">{staticQr.upiIntent}</p>
+            </div>
+          )}
+        </div>
 
         {/* API Info */}
         <div className="mt-8 text-center text-slate-500 text-sm">

@@ -1,7 +1,6 @@
 package org.personal.service;
 
 import tools.jackson.databind.ObjectMapper;
-import org.personal.entity.Transaction;
 import org.personal.enums.PaymentType;
 import org.personal.enums.TransactionStatus;
 import org.slf4j.Logger;
@@ -17,7 +16,6 @@ import java.util.Map;
 
 /**
  * HTTP client for communicating with the external simulator service.
- * Replaces direct calls to UpiSimulatorService.
  */
 @Service
 public class SimulatorClient {
@@ -42,25 +40,27 @@ public class SimulatorClient {
      * Initiate UPI collect request via simulator.
      */
     public SimulatorResponse initiateUpiCollect(
-            Transaction transaction,
+            String transactionId,
+            BigDecimal amount,
             String customerVpa,
             String merchantVpa,
-            PaymentType paymentType) {
+            PaymentType paymentType,
+            String callbackUrl) {
 
         String url = simulatorBaseUrl + "/api/simulator/upi/collect";
 
         Map<String, Object> request = new HashMap<>();
-        request.put("transactionId", transaction.getTransactionId());
+        request.put("transactionId", transactionId);
         request.put("paymentType", paymentType.name());
-        request.put("amount", transaction.getAmount());
+        request.put("amount", amount);
         request.put("customerVpa", customerVpa);
         request.put("merchantVpa", merchantVpa);
-        request.put("callbackUrl", backendBaseUrl + "/api/transactions/upi/callback");
+        request.put("callbackUrl", callbackUrl);
         request.put("currency", "INR");
 
         try {
             log.info("Calling simulator collect: url={}, txnId={}, paymentType={}",
-                url, transaction.getTransactionId(), paymentType);
+                url, transactionId, paymentType);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -89,54 +89,6 @@ public class SimulatorClient {
     }
 
     /**
-     * Initiate UPI refund via simulator.
-     */
-    public SimulatorResponse initiateUpiRefund(
-            Transaction originalTransaction,
-            Transaction refundTransaction,
-            PaymentType paymentType) {
-
-        String url = simulatorBaseUrl + "/api/simulator/upi/refund";
-
-        Map<String, Object> request = new HashMap<>();
-        request.put("transactionId", refundTransaction.getTransactionId());
-        request.put("originalTransactionId", originalTransaction.getTransactionId());
-        request.put("originalPspReferenceId", originalTransaction.getPspReferenceId());
-        request.put("paymentType", paymentType.name());
-        request.put("amount", refundTransaction.getAmount());
-        request.put("callbackUrl", backendBaseUrl + "/api/transactions/upi/callback");
-
-        try {
-            log.info("Calling simulator refund: url={}, txnId={}, originalTxnId={}",
-                url, refundTransaction.getTransactionId(), originalTransaction.getTransactionId());
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(request, headers);
-
-            ResponseEntity<Map> response = restTemplate.exchange(
-                url, HttpMethod.POST, entity, Map.class);
-
-            Map<String, Object> body = response.getBody();
-
-            SimulatorResponse result = new SimulatorResponse();
-            result.setPspReferenceId((String) body.get("pspReferenceId"));
-            result.setBankReferenceId((String) body.get("bankReferenceId"));
-            result.setStatus(TransactionStatus.valueOf((String) body.get("status")));
-            result.setBankCode((String) body.get("bankCode"));
-
-            log.info("Simulator refund response: pspRef={}, status={}",
-                result.getPspReferenceId(), result.getStatus());
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("Failed to call simulator refund: {}", e.getMessage());
-            throw new RuntimeException("Simulator unavailable: " + e.getMessage(), e);
-        }
-    }
-
-    /**
      * Check if simulator is available.
      */
     public boolean isSimulatorAvailable() {
@@ -160,45 +112,19 @@ public class SimulatorClient {
         private String failureReason;
         private String bankCode;
 
-        // Getters and setters
-        public String getPspReferenceId() {
-            return pspReferenceId;
-        }
+        public String getPspReferenceId() { return pspReferenceId; }
+        public void setPspReferenceId(String pspReferenceId) { this.pspReferenceId = pspReferenceId; }
 
-        public void setPspReferenceId(String pspReferenceId) {
-            this.pspReferenceId = pspReferenceId;
-        }
+        public String getBankReferenceId() { return bankReferenceId; }
+        public void setBankReferenceId(String bankReferenceId) { this.bankReferenceId = bankReferenceId; }
 
-        public String getBankReferenceId() {
-            return bankReferenceId;
-        }
+        public TransactionStatus getStatus() { return status; }
+        public void setStatus(TransactionStatus status) { this.status = status; }
 
-        public void setBankReferenceId(String bankReferenceId) {
-            this.bankReferenceId = bankReferenceId;
-        }
+        public String getFailureReason() { return failureReason; }
+        public void setFailureReason(String failureReason) { this.failureReason = failureReason; }
 
-        public TransactionStatus getStatus() {
-            return status;
-        }
-
-        public void setStatus(TransactionStatus status) {
-            this.status = status;
-        }
-
-        public String getFailureReason() {
-            return failureReason;
-        }
-
-        public void setFailureReason(String failureReason) {
-            this.failureReason = failureReason;
-        }
-
-        public String getBankCode() {
-            return bankCode;
-        }
-
-        public void setBankCode(String bankCode) {
-            this.bankCode = bankCode;
-        }
+        public String getBankCode() { return bankCode; }
+        public void setBankCode(String bankCode) { this.bankCode = bankCode; }
     }
 }
