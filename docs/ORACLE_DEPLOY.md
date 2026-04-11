@@ -1,6 +1,9 @@
-# Deploying to Oracle Cloud Always Free
+# Deploying the Backend to Oracle Cloud Always Free
 
-Zero-cost hosting on Oracle's Ampere ARM VM. Everything runs via Docker Compose.
+Oracle hosts the backend services (Spring Boot API, simulator, PostgreSQL).
+The frontend is deployed separately on Vercel or Cloudflare Pages — see FRONTEND_DEPLOY.md.
+
+Zero-cost hosting on Oracle's Ampere ARM VM. Backend services run via Docker Compose.
 
 ---
 
@@ -87,16 +90,22 @@ echo "export APP_BASE_URL='$APP_BASE_URL'" >> ~/.bashrc
 
 ---
 
-## 6. Build and Start
+## 6. Build and Start (Backend Only)
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
-This will:
-- Build all 3 service images (takes ~5-10 min on first run)
-- Start postgres, backend, simulator, frontend
-- Expose only port 80 publicly (nginx reverse proxies /api/ to backend internally)
+This starts:
+- `postgres` — database (internal only, port not exposed)
+- `backend` — Spring Boot API on port 8080 (internal only)
+- `simulator` — PSP simulator on port 8181 (internal only)
+- `api-gateway` — nginx on port 80 (the only public-facing container)
+
+The `frontend` service is skipped automatically (it has `profiles: [local]` in prod).
+
+> **After this:** Deploy your frontend to Vercel/Cloudflare (see FRONTEND_DEPLOY.md)
+> and set `VITE_API_BASE=http://<YOUR_VM_PUBLIC_IP>` in the frontend env settings.
 
 Check everything is running:
 ```bash
@@ -108,12 +117,17 @@ docker compose logs backend --tail=50
 
 ## 7. Verify
 
-Open `http://<YOUR_VM_PUBLIC_IP>` in your browser — you should see the merchant checkout page.
-
-To test the API directly:
+Test the API gateway is working:
 ```bash
+# Health check
+curl http://<YOUR_VM_PUBLIC_IP>/health
+
+# API reachable
 curl http://<YOUR_VM_PUBLIC_IP>/api/v1/payments
+# Expected: 405 Method Not Allowed (correct — GET not supported, but backend is reachable)
 ```
+
+Then open your Vercel/Cloudflare frontend URL in the browser to verify the full flow.
 
 ---
 
@@ -168,14 +182,22 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 ---
 
-## Architecture on the VM
+## Architecture
 
 ```
-Internet → port 80 → nginx (frontend container)
-                         ├── /          → React SPA (static files)
-                         └── /api/      → proxy → backend:8080 (internal)
-                                                       └── simulator:8181 (internal)
-                                                       └── postgres:5432  (internal)
+                    Oracle VM (port 80 only)
+                    ┌──────────────────────────────────────────┐
+Internet ─port 80──▶│  nginx api-gateway                       │
+                    │    /api/*  ──▶ backend:8080               │
+                    │    /health ──▶ 200 OK                     │
+                    │                    └──▶ simulator:8181    │
+                    │                    └──▶ postgres:5432     │
+                    └──────────────────────────────────────────┘
+                              ▲
+                    VITE_API_BASE points here
+                              │
+              Vercel/Cloudflare (React SPA, CDN)
+                    ◀──── User browser
 ```
 
-Only port 80 is exposed. All other services communicate on Docker's internal network.
+Only port 80 is public. All other ports are internal to Docker's network.

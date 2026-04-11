@@ -1,32 +1,42 @@
 version: '3.8'
 
-# Production overrides for Oracle Cloud (or any Linux VM)
+# Production overrides for Oracle Cloud (backend-only — frontend is on Vercel/Cloudflare)
 # Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 #
-# Before running, set these environment variables on the host:
-#   export DB_PASSWORD=<strong-random-password>
-#   export APP_BASE_URL=http://<your-vm-public-ip>   (or https://domain once set up)
+# Required env vars before running:
+#   export DB_PASSWORD=$(openssl rand -base64 24)
+#   export APP_BASE_URL=http://<your-vm-public-ip>   (update to domain later)
+#   export FRONTEND_URL=https://<your-vercel-app>.vercel.app
 
 services:
   postgres:
     environment:
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD env var is required}
-    ports: []   # Don't expose DB port publicly in production
+    ports: []     # Never expose DB publicly
     restart: always
 
   backend:
     environment:
       - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:?DB_PASSWORD env var is required}
       - APP_BASE_URL=${APP_BASE_URL:-http://localhost}
-      - JAVA_OPTS=-Xmx384m -Xms128m   # Tune JVM heap for 1GB RAM VM
-    ports: []   # Not exposed publicly — nginx proxies /api/ to it
+      - JAVA_OPTS=-Xmx384m -Xms128m   # Tune JVM heap for Oracle free VM
+    ports: []     # Internal only — api-gateway proxies to backend:8080
     restart: always
 
   simulator:
-    ports: []   # Internal only
+    ports: []     # Internal only
     restart: always
 
   frontend:
+    profiles: ["local"]   # Excluded from production; frontend runs on Vercel/Cloudflare
+
+  # Nginx API gateway — the only public-facing container on Oracle
+  api-gateway:
+    image: nginx:alpine
     ports:
-      - "80:80"   # Only this port is public
+      - "80:80"
+    volumes:
+      - ./nginx/api-gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
     restart: always
