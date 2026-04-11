@@ -1,0 +1,32 @@
+version: '3.8'
+
+# Production overrides for Oracle Cloud (or any Linux VM)
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Before running, set these environment variables on the host:
+#   export DB_PASSWORD=<strong-random-password>
+#   export APP_BASE_URL=http://<your-vm-public-ip>   (or https://domain once set up)
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD env var is required}
+    ports: []   # Don't expose DB port publicly in production
+    restart: always
+
+  backend:
+    environment:
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:?DB_PASSWORD env var is required}
+      - APP_BASE_URL=${APP_BASE_URL:-http://localhost}
+      - JAVA_OPTS=-Xmx384m -Xms128m   # Tune JVM heap for 1GB RAM VM
+    ports: []   # Not exposed publicly — nginx proxies /api/ to it
+    restart: always
+
+  simulator:
+    ports: []   # Internal only
+    restart: always
+
+  frontend:
+    ports:
+      - "80:80"   # Only this port is public
+    restart: always

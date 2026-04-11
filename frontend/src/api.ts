@@ -11,7 +11,9 @@ import type {
   ThreeDSAuthResponse,
 } from './types';
 
-const API_BASE = 'http://localhost:8080';
+// In production, nginx proxies /api/ to the backend so we use a relative base.
+// In local dev, set VITE_API_BASE=http://localhost:8080 in frontend/.env.local
+const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
 export const api = {
   // ============================================
